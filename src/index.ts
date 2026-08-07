@@ -1,41 +1,50 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { buildArgs } from "./todo.ts";
-import { parseCommand } from "./command.ts";
 
+/**
+ * `/todo` slash command — a thin forwarder.
+ *
+ * The handler takes whatever natural language the user typed after `/todo`
+ * and forwards it to the agent as a user message via `pi.sendUserMessage`.
+ * The message explicitly requests the `todo-cli` skill so the
+ * `using-superpowers` bootstrap reliably loads it before the agent acts.
+ *
+ * The agent then uses the `todo` CLI through bash to fulfil the request.
+ */
 export default function (pi: ExtensionAPI) {
   pi.registerCommand("todo", {
     description:
-      "Manage your personal todo list: /todo list [--all] [--overdue] | add <name> [due=D] [category=X] | update <id> [...] | done <id> | rm <id> | categories",
+      "Manage your personal todo list with natural language: /todo what's on my list? | /todo add water the garden due in 3 days | /todo mark brushing teeth as complete",
     getArgumentCompletions: (prefix) => {
-      const actions = ["list", "add", "update", "done", "rm", "categories"];
-      const p = prefix.trimStart();
-      const hits = actions.filter((a) => a.startsWith(p));
-      return hits.length ? hits.map((value) => ({ value, label: value })) : null;
+      const hints = [
+        "list",
+        "add",
+        "update",
+        "done",
+        "rm",
+        "categories",
+        "what's",
+        "show",
+        "mark",
+      ];
+      const p = prefix.trimStart().toLowerCase();
+      const hits = hints.filter((h) => h.startsWith(p));
+      return hits.length
+        ? hits.map((value) => ({ value, label: value }))
+        : null;
     },
     handler: async (args, ctx) => {
-      let cliArgs: string[];
+      const input = (args ?? "").trim();
+      const request = input || "list my todos";
       try {
-        const params = parseCommand(args ?? "");
-        cliArgs = buildArgs(params);
+        pi.sendUserMessage(
+          `Invoke the todo-cli skill, then handle this personal todo request: ${request}`,
+        );
       } catch (err) {
-        ctx.ui.notify(err instanceof Error ? err.message : String(err), "error");
-        return;
-      }
-
-      const result = await pi.exec("todo", cliArgs, { signal: ctx.signal });
-      if (result.killed) {
-        ctx.ui.notify(`todo ${cliArgs[0]} was cancelled`, "warning");
-        return;
-      }
-      if (result.code !== 0) {
         ctx.ui.notify(
-          `todo ${cliArgs[0]} failed (exit ${result.code}): ${result.stderr || result.stdout}`.trim(),
+          `Failed to forward todo request: ${err instanceof Error ? err.message : String(err)}`,
           "error",
         );
-        return;
       }
-      const out = result.stdout.trim();
-      ctx.ui.notify(out || `todo ${cliArgs[0]} completed.`, "info");
     },
   });
 }

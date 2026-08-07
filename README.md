@@ -1,13 +1,16 @@
 # pi-todo-cli-command
 
-A [Pi](https://pi.dev) extension that exposes the [`todo` CLI](https://github.com/martinremy/todo-cli) as a user-invoked `/todo` slash command, so you can manage your personal todo list (list, add, update, done, rm, categories) directly from the Pi prompt.
+A [Pi](https://pi.dev) extension that exposes the [`todo` CLI](https://github.com/martinremy/todo-cli) as a user-invoked `/todo` slash command with **natural language** input.
 
-This is a **command**, not a tool: the agent cannot call it autonomously, so it never bleeds into skill checklists or task-tracking workflows. You invoke it explicitly with `/todo`.
+Type `/todo` followed by anything you'd say to a human assistant, and the request is forwarded to the agent, which uses the `todo-cli` skill to translate your words into the right CLI commands.
+
+This is a **command, not a tool**: the agent cannot call it autonomously, so it never bleeds into skill checklists or task-tracking workflows. You invoke it explicitly with `/todo`.
 
 ## Requirements
 
 - [Pi](https://pi.dev) (`@earendil-works/pi-coding-agent`)
 - The `todo` binary installed and in `PATH` (see [todo-cli](https://github.com/martinremy/todo-cli))
+- The `todo-cli` skill loaded in your Pi session (provides the CLI reference the agent needs to translate natural language into `todo` commands)
 
 ## Install
 
@@ -23,30 +26,33 @@ pi -e /path/to/pi-todo-cli-command/src/index.ts
 
 ## Usage
 
-Type `/todo` followed by an action and natural-language arguments:
+Type `/todo` followed by natural language:
 
 ```
-/todo list
-/todo list --overdue
-/todo add renew my passport due=2026-09-01 category=life
-/todo add buy milk due=tomorrow category=home desc="weekly shop"
-/todo update 01KJ5TSJGE44C958G5P268AF8E status=inprogress
-/todo done 01KJ5TSJGE44C958G5P268AF8E
-/todo rm 01KJ5TSJGE44C958G5P268AF8E
-/todo categories
+/todo what's on my list?
+/todo what's overdue?
+/todo what are my overdue work items?
+/todo mark brushing teeth as complete
+/todo add an item water the garden due in 3 days
+/todo add a recurring todo for watering the garden every 7 days, first due date tomorrow
 ```
 
-The first token is the action (`list`, `add`, `update`, `done`, `rm`, `categories`); everything after it is parsed into flags and a free-text name. `/todo` with nothing after it defaults to `list`.
+`/todo` with nothing after it defaults to listing your todos.
 
-Dates accept `YYYY-MM-DD`, `today`, `tomorrow`, or relative offsets like `3d`, `1w`, `2m`, `1y` (from today). Multi-word values can be quoted: `desc="a longer note"`.
+## How it works
 
-`list` returns the CLI's JSONL output verbatim. `rm` always runs with `--force` since the CLI is invoked non-interactively.
+1. You type `/todo <natural language>`.
+2. The command handler forwards your text to the agent as a user message via `pi.sendUserMessage`, explicitly requesting the `todo-cli` skill.
+3. The `using-superpowers` bootstrap loads the skill, which documents the `todo` CLI (commands, ULID lookup, date formats, recurrence, JSONL output).
+4. The agent uses the CLI through bash to fulfil your request — listing, matching by name, resolving dates, and invoking the right commands.
+
+The extension itself does no parsing or CLI execution — it's a thin forwarder. All the natural-language understanding happens in the agent, guided by the skill.
 
 ## Development
 
 ```bash
 npm install          # dev dependencies (typescript, pi packages for types)
-npm test             # unit tests for the argument builder, command parser, and command handler (node:test)
+npm test             # unit tests for the command handler (node:test)
 npm run typecheck    # tsc --noEmit
 ```
 

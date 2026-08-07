@@ -1,7 +1,7 @@
 {
   "name": "pi-todo-cli-command",
-  "version": "0.2.0",
-  "description": "Pi extension that exposes the todo CLI (github.com/martinremy/todo-cli) as a /todo slash command",
+  "version": "0.3.0",
+  "description": "Pi extension that forwards natural-language /todo requests to the agent, which uses the todo-cli skill to manage the todo CLI",
   "type": "module",
   "license": "MIT",
   "keywords": [
