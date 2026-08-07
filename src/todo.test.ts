@@ -83,3 +83,62 @@ test("rm without force omits flag", () => {
     "01KJ5TSJGE44C958G5P268AF8E",
   ]);
 });
+
+test("list with all:false omits --all", () => {
+  assert.deepEqual(buildArgs({ action: "list", all: false }), ["list"]);
+});
+
+test("list with overdue:false omits --overdue", () => {
+  assert.deepEqual(buildArgs({ action: "list", overdue: false }), ["list"]);
+});
+
+test("rm with force:false omits --force", () => {
+  assert.deepEqual(buildArgs({ action: "rm", id: "01KJ5TSJGE44C958G5P268AF8E", force: false }), [
+    "rm",
+    "01KJ5TSJGE44C958G5P268AF8E",
+  ]);
+});
+
+test("add with only a name produces the minimal argv", () => {
+  assert.deepEqual(buildArgs({ action: "add", name: "Solo" }), ["add", "Solo"]);
+});
+
+test("add with empty-string category omits the flag", () => {
+  assert.deepEqual(buildArgs({ action: "add", name: "X", category: "" }), ["add", "X"]);
+});
+
+test("update with name includes --name", () => {
+  assert.deepEqual(buildArgs({ action: "update", id: "01KJ5TSJGE44C958G5P268AF8E", name: "New" }), [
+    "update",
+    "01KJ5TSJGE44C958G5P268AF8E",
+    "--name",
+    "New",
+  ]);
+});
+
+test("update with description includes --desc", () => {
+  assert.deepEqual(buildArgs({ action: "update", id: "01KJ5TSJGE44C958G5P268AF8E", description: "d" }), [
+    "update",
+    "01KJ5TSJGE44C958G5P268AF8E",
+    "--desc",
+    "d",
+  ]);
+});
+
+test("update with category includes --category", () => {
+  assert.deepEqual(buildArgs({ action: "update", id: "01KJ5TSJGE44C958G5P268AF8E", category: "work" }), [
+    "update",
+    "01KJ5TSJGE44C958G5P268AF8E",
+    "--category",
+    "work",
+  ]);
+});
+
+test("update with recurrence includes --recurrence", () => {
+  assert.deepEqual(buildArgs({ action: "update", id: "01KJ5TSJGE44C958G5P268AF8E", recurrence: "1m" }), [
+    "update",
+    "01KJ5TSJGE44C958G5P268AF8E",
+    "--recurrence",
+    "1m",
+  ]);
+});
