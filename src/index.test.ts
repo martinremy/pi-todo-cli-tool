@@ -15,100 +15,144 @@ type ExecImpl = (
   opts?: { signal?: AbortSignal },
 ) => Promise<ExecResult>;
 
-// Load the extension against a stub `pi` that captures the registered tool and
-// routes `exec` to the provided implementation. The real `todo` binary is never
-// invoked — these tests cover the extension's glue, not the CLI.
-function loadTool(execImpl: ExecImpl): Record<string, unknown> {
-  let tool: Record<string, unknown> | undefined;
+interface StubCtx {
+  ui: { notify: (msg: string, level?: "info" | "warning" | "error") => void };
+  signal?: AbortSignal;
+}
+
+interface CapturedCommand {
+  description?: string;
+  getArgumentCompletions?: (prefix: string) => unknown;
+  handler: (args: string, ctx: StubCtx) => Promise<void>;
+}
+
+interface Harness {
+  command: CapturedCommand;
+  execCalls: { cmd: string; args: string[]; signal?: AbortSignal }[];
+}
+
+/**
+ * Load the extension against a stub `pi` that captures the registered command
+ * and records every `pi.exec` call. The real `todo` binary is never invoked —
+ * these tests cover the extension's glue, not the CLI.
+ */
+function setup(execImpl: ExecImpl): Harness {
+  const execCalls: { cmd: string; args: string[]; signal?: AbortSignal }[] = [];
+  let command: CapturedCommand | undefined;
   const pi = {
-    registerTool(def: Record<string, unknown>) {
-      tool = def;
+    registerCommand(_name: string, options: CapturedCommand) {
+      command = options;
     },
-    exec: execImpl,
+    exec: async (cmd: string, args: string[], opts?: { signal?: AbortSignal }) => {
+      execCalls.push({ cmd, args, signal: opts?.signal });
+      return execImpl(cmd, args, opts);
+    },
   } as unknown as Parameters<typeof factory>[0];
   factory(pi);
-  if (!tool) throw new Error("extension did not register a tool");
-  return tool;
+  if (!command) throw new Error("extension did not register a command");
+  return { command, execCalls };
 }
 
-async function callExecute(
-  tool: Record<string, unknown>,
-  params: Record<string, unknown>,
+/** Run the handler, capturing every notify() call. */
+async function run(
+  command: CapturedCommand,
+  args: string,
   signal?: AbortSignal,
-) {
-  const execute = tool.execute as (
-    id: string,
-    params: Record<string, unknown>,
-    signal?: AbortSignal,
-    onUpdate?: unknown,
-    ctx?: unknown,
-  ) => Promise<Record<string, unknown>>;
-  return execute("call-1", params, signal, undefined, undefined);
+): Promise<{ messages: { msg: string; level: string }[] }> {
+  const messages: { msg: string; level: string }[] = [];
+  const ctx: StubCtx = {
+    ui: {
+      notify: (msg, level = "info") => messages.push({ msg, level }),
+    },
+    signal,
+  };
+  await command.handler(args, ctx);
+  return { messages };
 }
 
-test("execute returns trimmed stdout as text and records action/args in details", async () => {
-  let received: { cmd: string; args: string[] } | null = null;
-  const tool = loadTool(async (cmd, args) => {
-    received = { cmd, args };
-    return { stdout: '  {"id":"x"}\n  ', stderr: "", code: 0, killed: false };
-  });
-  const result = await callExecute(tool, { action: "list" });
-  assert.equal(received!.cmd, "todo");
-  assert.deepEqual(received!.args, ["list"]);
-  assert.deepEqual(result.content, [{ type: "text", text: '{"id":"x"}' }]);
-  assert.deepEqual(result.details, { action: "list", args: ["list"] });
+const ok = async (): Promise<ExecResult> => ({ stdout: "", stderr: "", code: 0, killed: false });
+
+test("registers a command named todo with a description and completions", () => {
+  const { command } = setup(ok);
+  assert.ok(command.description && command.description.length > 0);
+  assert.equal(typeof command.handler, "function");
+  assert.equal(typeof command.getArgumentCompletions, "function");
 });
 
-test("execute throws on non-zero exit using stderr", async () => {
-  const tool = loadTool(async () => ({ stdout: "", stderr: "no such todo", code: 1, killed: false }));
-  await assert.rejects(
-    () => callExecute(tool, { action: "done", id: "01KJ5TSJGE44C958G5P268AF8E" }),
-    /todo done failed \(exit 1\): no such todo/,
-  );
+test("getArgumentCompletions returns matching actions", () => {
+  const { command } = setup(ok);
+  const completions = command.getArgumentCompletions!("l") as { value: string; label: string }[];
+  assert.deepEqual(completions, [{ value: "list", label: "list" }]);
 });
 
-test("execute throws on non-zero exit falling back to stdout when stderr is empty", async () => {
-  const tool = loadTool(async () => ({ stdout: "boom", stderr: "", code: 2, killed: false }));
-  await assert.rejects(
-    () => callExecute(tool, { action: "rm", id: "01KJ5TSJGE44C958G5P268AF8E", force: true }),
-    /todo rm failed \(exit 2\): boom/,
-  );
+test("getArgumentCompletions returns null when nothing matches", () => {
+  const { command } = setup(ok);
+  assert.equal(command.getArgumentCompletions!("zzz"), null);
 });
 
-test("execute throws cancelled when killed (takes precedence over exit code)", async () => {
-  const tool = loadTool(async () => ({ stdout: "", stderr: "", code: 1, killed: true }));
-  await assert.rejects(
-    () => callExecute(tool, { action: "list" }),
-    /todo list was cancelled/,
-  );
+test("handler parses list and notifies with trimmed stdout", async () => {
+  const { command, execCalls } = setup(async () => ({ stdout: '  {"id":"x"}\n  ', stderr: "", code: 0, killed: false }));
+  const { messages } = await run(command, "list");
+  assert.deepEqual(execCalls, [{ cmd: "todo", args: ["list"], signal: undefined }]);
+  assert.deepEqual(messages, [{ msg: '{"id":"x"}', level: "info" }]);
 });
 
-test("execute returns fallback message when stdout is blank", async () => {
-  const tool = loadTool(async () => ({ stdout: "   ", stderr: "", code: 0, killed: false }));
-  const result = await callExecute(tool, { action: "add", name: "X" });
-  assert.equal(
-    (result.content as Array<{ text: string }>)[0].text,
-    "todo add completed successfully (no output).",
-  );
+test("handler parses add with natural-language name and resolves relative dates", async () => {
+  const { command, execCalls } = setup(async () => ({ stdout: "", stderr: "", code: 0, killed: false }));
+  await run(command, "add buy milk due=tomorrow category=Home");
+  const args = execCalls[0].args;
+  assert.equal(args[0], "add");
+  assert.equal(args[1], "buy milk");
+  assert.equal(args[args.indexOf("--category") + 1], "Home");
+  assert.match(args[args.indexOf("--due") + 1], /^\d{4}-\d{2}-\d{2}$/);
 });
 
-test("execute forwards the abort signal to pi.exec", async () => {
-  let receivedSignal: AbortSignal | undefined;
-  const tool = loadTool(async (_cmd, _args, opts) => {
-    receivedSignal = opts?.signal;
-    return { stdout: "", stderr: "", code: 0, killed: false };
-  });
+test("handler notifies error on non-zero exit using stderr", async () => {
+  const { command } = setup(async () => ({ stdout: "", stderr: "no such todo", code: 1, killed: false }));
+  const { messages } = await run(command, "done 01KJ5TSJGE44C958G5P268AF8E");
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].level, "error");
+  assert.match(messages[0].msg, /todo done failed \(exit 1\): no such todo/);
+});
+
+test("handler notifies error on non-zero exit falling back to stdout when stderr empty", async () => {
+  const { command } = setup(async () => ({ stdout: "boom", stderr: "", code: 2, killed: false }));
+  const { messages } = await run(command, "rm 01KJ5TSJGE44C958G5P268AF8E");
+  assert.match(messages[0].msg, /todo rm failed \(exit 2\): boom/);
+});
+
+test("handler notifies warning when killed", async () => {
+  const { command } = setup(async () => ({ stdout: "", stderr: "", code: 1, killed: true }));
+  const { messages } = await run(command, "list");
+  assert.equal(messages[0].level, "warning");
+  assert.match(messages[0].msg, /todo list was cancelled/);
+});
+
+test("handler notifies fallback message when stdout is blank", async () => {
+  const { command } = setup(async () => ({ stdout: "   ", stderr: "", code: 0, killed: false }));
+  const { messages } = await run(command, "add X");
+  assert.equal(messages[0].msg, "todo add completed.");
+});
+
+test("handler notifies parse error on unknown action and does not exec", async () => {
+  const { command, execCalls } = setup(ok);
+  const { messages } = await run(command, "frobnicate");
+  assert.equal(execCalls.length, 0);
+  assert.equal(messages[0].level, "error");
+  assert.match(messages[0].msg, /unknown action "frobnicate"/);
+});
+
+test("handler notifies buildArgs error when add has no name and does not exec", async () => {
+  const { command, execCalls } = setup(ok);
+  const { messages } = await run(command, "add");
+  assert.equal(execCalls.length, 0);
+  assert.equal(messages[0].level, "error");
+  assert.match(messages[0].msg, /name is required/);
+});
+
+test("handler forwards the abort signal to pi.exec", async () => {
+  const { command, execCalls } = setup(ok);
   const ac = new AbortController();
-  await callExecute(tool, { action: "list" }, ac.signal);
-  assert.equal(receivedSignal, ac.signal);
-});
-
-test("execute builds args from params before calling exec", async () => {
-  let receivedArgs: string[] | null = null;
-  const tool = loadTool(async (_cmd, args) => {
-    receivedArgs = args;
-    return { stdout: "", stderr: "", code: 0, killed: false };
-  });
-  await callExecute(tool, { action: "add", name: "Foo", due: "2026-08-20", category: "work" });
-  assert.deepEqual(receivedArgs, ["add", "Foo", "--category", "work", "--due", "2026-08-20"]);
+  await run(command, "list", ac.signal);
+  assert.equal(execCalls[0].signal, ac.signal);
 });
