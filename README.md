@@ -1,4 +1,4 @@
-# pi-todo-cli-tool
+# pi-todo-cli-command
 
 A [Pi](https://pi.dev) extension that exposes the [`todo` CLI](https://github.com/martinremy/todo-cli) as a user-invoked `/todo` slash command, so you can manage your personal todo list (list, add, update, done, rm, categories) directly from the Pi prompt.
 
@@ -12,13 +12,13 @@ This is a **command**, not a tool: the agent cannot call it autonomously, so it 
 ## Install
 
 ```bash
-pi install git:github.com/martinremy/pi-todo-cli-tool
+pi install git:github.com/martinremy/pi-todo-cli-command
 ```
 
 Or load it directly from a local clone:
 
 ```bash
-pi -e /path/to/pi-todo-cli-tool/src/index.ts
+pi -e /path/to/pi-todo-cli-command/src/index.ts
 ```
 
 ## Usage
