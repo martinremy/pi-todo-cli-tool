@@ -17,6 +17,9 @@ export default function (pi: ExtensionAPI) {
       "Run the todo tool with action \"list\" before update, done, or rm to obtain the item's full 26-char ULID for the id parameter.",
       "Pass due/from/to dates to the todo tool in YYYY-MM-DD format; convert relative dates (\"next Friday\", \"in 3 days\") before calling.",
       "Always set force to true when calling the todo tool with action \"rm\".",
+      "When adding an item with the todo tool, ask the user for a category and due date if they did not specify them; every item needs a due date (default 14 days, explicit preferred).",
+      "After the todo tool marks a recurring item done with action \"done\", tell the user a new item was created with the next due date.",
+      "Use the todo tool with action \"list\" and overdue true to surface past-due items in a daily review.",
     ],
     parameters: Type.Object({
       action: StringEnum(["list", "add", "update", "done", "rm", "categories"] as const),
