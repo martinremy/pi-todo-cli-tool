@@ -33,7 +33,7 @@ The extension registers a single tool named `todo` whose `action` parameter mirr
 
 ```bash
 npm install          # dev dependencies (typescript, pi packages for types)
-npm test             # unit tests for the CLI argument builder (node:test)
+npm test             # unit tests for the argument builder and tool execute glue (node:test)
 npm run typecheck    # tsc --noEmit
 ```
 
